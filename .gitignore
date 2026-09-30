@@ -1,0 +1,51 @@
+# Visual Studio user-specific files
+.vs/
+
+# Compiled object and library files
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.so
+*.dylib
+*.dll
+*.mod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.ipa
+
+# Generated IDE/project files
+*.xcodeproj
+*.xcworkspace
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.vsconfig
+
+# Unreal Engine generated files
+Binaries/*
+Plugins/**/Binaries/*
+Build/*
+!Build/*/
+Build/*/**
+!Build/*/PakBlacklist*.txt
+!Build/**/*.ico
+*_BuiltData.uasset
+Saved/*
+Intermediate/*
+Plugins/**/Intermediate/*
+DerivedDataCache/*
+
+# Source art generated/cache files
+SourceArt/**/*.png
+SourceArt/**/*.tga
