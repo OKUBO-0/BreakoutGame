@@ -6,6 +6,23 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Components/TextBlock.h"
+#include "GameFramework/Pawn.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
+
+void UBreakoutGameInformation::NativeConstruct()
+{
+    Super::NativeConstruct();
+    if (const ABreakoutGameManager* Manager = ABreakoutGameManager::Find(GetWorld())) Refresh(Manager->GetLeftBallNum());
+}
+
+void UBreakoutGameInformation::Refresh(int32 LeftBallNum)
+{
+    if (LeftBallTextBox) LeftBallTextBox->SetText(FText::FromString(FString::Printf(TEXT("LeftBall : %d"), LeftBallNum)));
+}
 
 void UBreakoutClearWidget::NativeConstruct()
 {
@@ -16,7 +33,8 @@ void UBreakoutClearWidget::NativeConstruct()
 void UBreakoutGameOverWidget::NativeConstruct()
 {
     Super::NativeConstruct();
-    if (ColorAnimation) PlayAnimation(ColorAnimation, 0.0f, 1, EUMGSequencePlayMode::Forward, 1.0f, false);
+    UWidgetAnimation* Animation = GameOverAnimation ? GameOverAnimation : ColorAnimation;
+    if (Animation) PlayAnimation(Animation, 0.0f, 1, EUMGSequencePlayMode::Forward, 1.0f, false);
 }
 
 ABreakoutGameManager::ABreakoutGameManager()
@@ -25,6 +43,102 @@ ABreakoutGameManager::ABreakoutGameManager()
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("DefaultSceneRoot"));
     ClearWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/Breakout/UI/ClearWidget.ClearWidget_C")));
     GameOverWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/Breakout/UI/GameOverWidget.GameOverWidget_C")));
+    BallClass = TSoftClassPtr<AActor>(FSoftObjectPath(TEXT("/Game/Breakout/BP_Ball.BP_Ball_C")));
+    GameInformationClass = TSoftClassPtr<UBreakoutGameInformation>(FSoftObjectPath(TEXT("/Game/Breakout/UI/GameInformation.GameInformation_C")));
+}
+
+void ABreakoutGameManager::BeginPlay()
+{
+    Super::BeginPlay();
+    if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+    {
+        if (UClass* WidgetClass = GameInformationClass.LoadSynchronous())
+        {
+            GameInformation = CreateWidget<UBreakoutGameInformation>(PC, WidgetClass);
+            if (GameInformation) GameInformation->AddToViewport();
+        }
+    }
+}
+
+void ABreakoutGameManager::SpawnBall()
+{
+    if (IsCleared || IsGameOver || bResetPending || IsBallSpawned || IsValid(ActiveBall) || LeftBallNum <= 0) return;
+    if (!IsValid(SpawnLocationActor))
+    {
+        UE_LOG(LogTemp, Error, TEXT("SpawnBall requires SpawnLocationActor."));
+        return;
+    }
+    UClass* Class = BallClass.LoadSynchronous();
+    if (!Class) return;
+    const FTransform Transform(FRotator::ZeroRotator, SpawnLocationActor->GetActorLocation(), FVector::OneVector);
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
+    AActor* Ball = GetWorld()->SpawnActor<AActor>(Class, Transform, Params);
+    // Failed spawns never consume a life or lock the next attempt.
+    if (!IsValid(Ball)) return;
+    ActiveBall = Ball;
+    IsBallSpawned = true;
+    --LeftBallNum;
+    Ball->OnDestroyed.AddDynamic(this, &ABreakoutGameManager::OnBallDestroyed);
+    if (GameInformation) GameInformation->Refresh(LeftBallNum);
+}
+
+void ABreakoutGameManager::OnBallDestroyed(AActor* Ball)
+{
+    if (Ball != ActiveBall) return;
+    ActiveBall = nullptr;
+    MissCount();
+}
+
+void ABreakoutGameManager::Action()
+{
+    if (IsGameOver) LevelReset();
+    else SpawnBall();
+}
+
+void ABreakoutGameManager::LevelReset()
+{
+    if (!IsGameOver || IsValid(ActiveBall) || bResetPending) return;
+    bResetPending = true;
+    UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
+}
+
+UBreakoutPaddleActionsComponent::UBreakoutPaddleActionsComponent()
+{
+    PrimaryComponentTick.bCanEverTick = true;
+}
+
+void UBreakoutPaddleActionsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    APawn* Paddle = Cast<APawn>(GetOwner());
+    APlayerController* PC = Paddle ? Cast<APlayerController>(Paddle->GetController()) : nullptr;
+    UEnhancedInputComponent* Input = Paddle ? Cast<UEnhancedInputComponent>(Paddle->InputComponent) : nullptr;
+    if (!PC || !PC->IsLocalController() || !Input) return;
+    GameManager = ABreakoutGameManager::Find(GetWorld());
+    ActionInput = LoadObject<UInputAction>(nullptr, TEXT("/Game/Breakout/Input/IA_Action.IA_Action"));
+    InputMapping = LoadObject<UInputMappingContext>(nullptr, TEXT("/Game/Breakout/Input/IMC_InGame.IMC_InGame"));
+    UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer());
+    if (!GameManager || !ActionInput || !InputMapping || !Subsystem) return;
+    Subsystem->AddMappingContext(InputMapping, 0);
+    BindingHandle = Input->BindAction(ActionInput, ETriggerEvent::Started, this, &UBreakoutPaddleActionsComponent::ActionStarted).GetHandle();
+    BoundInput = Input;
+    SetComponentTickEnabled(false);
+}
+
+void UBreakoutPaddleActionsComponent::ActionStarted()
+{
+    if (IsValid(GameManager)) GameManager->Action();
+}
+
+void UBreakoutPaddleActionsComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (BoundInput.IsValid()) BoundInput->RemoveBindingByHandle(BindingHandle);
+    if (APawn* Paddle = Cast<APawn>(GetOwner()))
+        if (APlayerController* PC = Cast<APlayerController>(Paddle->GetController()))
+            if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+                if (InputMapping) Subsystem->RemoveMappingContext(InputMapping);
+    Super::EndPlay(EndPlayReason);
 }
 
 ABreakoutGameManager* ABreakoutGameManager::Find(UWorld* World)
@@ -84,7 +198,9 @@ void ABreakoutGameManager::ViewGameOverWidget()
 
 void ABreakoutGameManager::MissCount()
 {
+    IsBallSpawned = false;
     if (IsCleared || IsGameOver) return;
+    if (LeftBallNum > 0) return;
     IsGameOver = true;
     ViewGameOverWidget();
 }
@@ -151,7 +267,8 @@ void UBreakoutBallRulesComponent::OnBallOverlap(UPrimitiveComponent* OverlappedC
 {
     if (bMissHandled || !OtherComp || !OtherComp->ComponentHasTag(TEXT("MissArea"))) return;
     bMissHandled = true;
-    if (ABreakoutGameManager* Manager = ABreakoutGameManager::Find(GetWorld())) Manager->MissCount();
+    // OnDestroyed updates the manager after the old ball is actually removed,
+    // so the next Action cannot see a stale live ball at the spawn point.
     // The slides explicitly retain ball destruction even after clear.
     GetOwner()->Destroy();
 }
