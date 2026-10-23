@@ -12,6 +12,11 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
+#include "BreakoutLesson04.h"
+#include "Components/TextRenderComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Sound/SoundBase.h"
+#include "Misc/PackageName.h"
 
 void UBreakoutGameInformation::NativeConstruct()
 {
@@ -50,6 +55,8 @@ ABreakoutGameManager::ABreakoutGameManager()
 void ABreakoutGameManager::BeginPlay()
 {
     Super::BeginPlay();
+    if (const UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance()))
+        if (Instance->IsValidBallNum()) LeftBallNum = Instance->LeftBallNum;
     if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
     {
         if (UClass* WidgetClass = GameInformationClass.LoadSynchronous())
@@ -93,14 +100,33 @@ void ABreakoutGameManager::OnBallDestroyed(AActor* Ball)
 void ABreakoutGameManager::Action()
 {
     if (IsGameOver) LevelReset();
+    else if (IsCleared) OpenNextLevel();
     else SpawnBall();
 }
 
 void ABreakoutGameManager::LevelReset()
 {
     if (!IsGameOver || IsValid(ActiveBall) || bResetPending) return;
+    if (UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance())) Instance->LeftBallNum = -1;
     bResetPending = true;
     UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
+}
+
+void ABreakoutGameManager::OpenNextLevel()
+{
+    if (!IsCleared || IsGameOver || bResetPending || NextLevelName.IsNone()) return;
+    FString PackageName;
+    if (!FPackageName::SearchForPackageOnDisk(NextLevelName.ToString(), &PackageName))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Next level does not exist: %s"), *NextLevelName.ToString());
+        return;
+    }
+    UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance());
+    if (!Instance) { UE_LOG(LogTemp, Error, TEXT("BreakoutGameInstance must be selected in Maps & Modes.")); return; }
+    // Restore the ball used to clear, even if it fell while viewing the result.
+    Instance->LeftBallNum = FMath::Max(0, LeftBallNum) + 1;
+    bResetPending = true;
+    UGameplayStatics::OpenLevel(this, FName(*PackageName));
 }
 
 UBreakoutPaddleActionsComponent::UBreakoutPaddleActionsComponent()
@@ -221,11 +247,49 @@ ABreakoutBlock::ABreakoutBlock()
     Cube->SetNotifyRigidBodyCollision(true);
     Cube->SetGenerateOverlapEvents(false);
     Cube->OnComponentHit.AddDynamic(this, &ABreakoutBlock::OnCubeHit);
+    TextRender = CreateDefaultSubobject<UTextRenderComponent>(TEXT("TextRender"));
+    TextRender->SetupAttachment(SceneRoot);
+    TextRender->SetRelativeLocation(FVector(-51, 0, 0));
+    TextRender->SetRelativeRotation(FRotator(0, 180, 0));
+    TextRender->SetHorizontalAlignment(EHTA_Center);
+    TextRender->SetVerticalAlignment(EVRTA_TextCenter);
+    TextRender->SetTextRenderColor(FColor::Black);
+    TextRender->SetWorldSize(150);
+    TextRender->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    BlockMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/Game/Breakout/BlockMaterial.BlockMaterial")));
+    ColorTable = {FLinearColor::White, FLinearColor(FColor(153,255,255)), FLinearColor(FColor(255,153,255)),
+        FLinearColor(FColor(255,153,153)), FLinearColor(FColor(255,255,153))};
+}
+
+void ABreakoutBlock::OnConstruction(const FTransform& Transform)
+{
+    Super::OnConstruction(Transform);
+    MaterialInstance = nullptr;
+    ReloadHp();
+}
+
+void ABreakoutBlock::ReloadHp()
+{
+    if (TextRender) TextRender->SetText(FText::AsNumber(Hp));
+    if (!MaterialInstance && Cube)
+        if (UMaterialInterface* Material = BlockMaterial.LoadSynchronous())
+            MaterialInstance = Cube->CreateDynamicMaterialInstance(0, Material);
+    if (MaterialInstance && ColorTable.IsValidIndex(Hp - 1))
+        MaterialInstance->SetVectorParameterValue(TEXT("BaseColor"), ColorTable[Hp - 1]);
+}
+
+void ABreakoutBlock::HitBlock()
+{
+    if (bBroken) return;
+    Hp = FMath::Max(0, Hp - 1);
+    ReloadHp();
+    if (Hp <= 0) BreakBlock();
 }
 
 void ABreakoutBlock::BeginPlay()
 {
     Super::BeginPlay();
+    ReloadHp();
     Manager = ABreakoutGameManager::Find(GetWorld());
     if (Manager.IsValid()) Manager->AddBlockNum();
     else UE_LOG(LogTemp, Error, TEXT("Block requires a GameManager in this level."));
@@ -234,7 +298,9 @@ void ABreakoutBlock::BeginPlay()
 void ABreakoutBlock::OnCubeHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
     UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-    if (OtherActor && OtherActor != this) BreakBlock();
+    if (!OtherActor || !OtherActor->FindComponentByClass<UBreakoutBallRulesComponent>() || LastImpactFrame == GFrameCounter) return;
+    LastImpactFrame = GFrameCounter;
+    HitBlock();
 }
 
 void ABreakoutBlock::BreakBlock()
@@ -249,6 +315,7 @@ void ABreakoutBlock::BreakBlock()
 UBreakoutBallRulesComponent::UBreakoutBallRulesComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
+    KnockSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Breakout/Audio/Breakout_SE_Knock.Breakout_SE_Knock")));
 }
 
 void UBreakoutBallRulesComponent::BeginPlay()
@@ -257,8 +324,18 @@ void UBreakoutBallRulesComponent::BeginPlay()
     if (UPrimitiveComponent* Ball = Cast<UPrimitiveComponent>(GetOwner()->GetRootComponent()))
     {
         Ball->SetGenerateOverlapEvents(true);
+        Ball->SetNotifyRigidBodyCollision(true);
+        Ball->OnComponentHit.AddDynamic(this, &UBreakoutBallRulesComponent::OnBallHit);
         Ball->OnComponentBeginOverlap.AddDynamic(this, &UBreakoutBallRulesComponent::OnBallOverlap);
     }
+}
+
+void UBreakoutBallRulesComponent::OnBallHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
+    UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+    if (!OtherActor || bMissHandled || LastSoundFrame == GFrameCounter) return;
+    LastSoundFrame = GFrameCounter;
+    if (USoundBase* Sound = KnockSound.LoadSynchronous()) UGameplayStatics::PlaySound2D(this, Sound, KnockVolume);
 }
 
 void UBreakoutBallRulesComponent::OnBallOverlap(UPrimitiveComponent* OverlappedComponent,

@@ -29,6 +29,8 @@
 #include "Editor.h"
 #include "FileHelpers.h"
 
+void SetupLesson04();
+
 namespace
 {
 void SaveAsset(UObject* Asset)
@@ -293,6 +295,7 @@ public:
             EnsureLesson03Assets();
             FitLessonWidgetsToCamera();
             ConfigureLesson03Level();
+            SetupLesson04();
             return false;
         }), 3.0f);
     }

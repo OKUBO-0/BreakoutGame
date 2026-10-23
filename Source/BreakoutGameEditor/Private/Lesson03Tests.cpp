@@ -142,7 +142,7 @@ public:
             if (Manager == OldManager.Get()) return false;
             Key(IE_Released);
             Test->TestEqual(TEXT("Reset restores all three reserves"), Manager->LeftBallNum, 3);
-            Test->TestEqual(TEXT("Reset restores ten blocks"), Manager->GetLeftBlockNum(), 10);
+            Test->TestEqual(TEXT("Reset restores five intro blocks"), Manager->GetLeftBlockNum(), 5);
             Test->TestEqual(TEXT("Reset waits for the next Space press"), BallCount(), 0);
             Test->TestFalse(TEXT("Reset clears GameOver"), Manager->IsGameOver);
             Test->TestNull(TEXT("Reset removes result UI"), Manager->ResultWidget.Get());
@@ -150,7 +150,7 @@ public:
             Manager->IsCleared = true;
             Manager->LeftBallNum = 0;
             Manager->MissCount();
-            Manager->Action();
+            Manager->SpawnBall();
             Test->TestFalse(TEXT("Clear takes priority over final miss"), Manager->IsGameOver);
             Test->TestEqual(TEXT("Clear prevents new balls"), BallCount(), 0);
             return true;

@@ -14,6 +14,10 @@ class UInputAction;
 class UInputMappingContext;
 class UEnhancedInputComponent;
 class ABreakoutGameManager;
+class UTextRenderComponent;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class USoundBase;
 
 UCLASS(Blueprintable)
 class BREAKOUTGAME_API UBreakoutGameInformation : public UUserWidget
@@ -70,6 +74,7 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="Ball") TObjectPtr<AActor> ActiveBall;
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="UI") TSoftClassPtr<UBreakoutGameInformation> GameInformationClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="UI") TObjectPtr<UBreakoutGameInformation> GameInformation;
+    UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category="Levels") FName NextLevelName;
 
     UFUNCTION(BlueprintCallable, Category="Blocks") void AddBlockNum();
     UFUNCTION(BlueprintCallable, Category="Blocks") void AddBrokenBlockNum();
@@ -81,6 +86,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Input") void Action();
     UFUNCTION(BlueprintPure, Category="Ball") int32 GetLeftBallNum() const { return LeftBallNum; }
     UFUNCTION(BlueprintCallable, Category="State") void LevelReset();
+    UFUNCTION(BlueprintCallable, Category="Levels") void OpenNextLevel();
     static ABreakoutGameManager* Find(UWorld* World);
 protected:
     virtual void BeginPlay() override;
@@ -116,7 +122,15 @@ public:
     ABreakoutBlock();
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Block") TObjectPtr<USceneComponent> SceneRoot;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Block") TObjectPtr<UStaticMeshComponent> Cube;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Block", meta=(ClampMin="1")) int32 Hp = 1;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Block") TObjectPtr<UTextRenderComponent> TextRender;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Block") TArray<FLinearColor> ColorTable;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Block") TSoftObjectPtr<UMaterialInterface> BlockMaterial;
+    UPROPERTY(Transient, BlueprintReadOnly, Category="Block") TObjectPtr<UMaterialInstanceDynamic> MaterialInstance;
+    UFUNCTION(BlueprintCallable, Category="Block") void ReloadHp();
+    UFUNCTION(BlueprintCallable, Category="Block") void HitBlock();
     UFUNCTION(BlueprintCallable, Category="Block") void BreakBlock();
+    virtual void OnConstruction(const FTransform& Transform) override;
 protected:
     virtual void BeginPlay() override;
     UFUNCTION() void OnCubeHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
@@ -124,6 +138,7 @@ protected:
 private:
     bool bBroken = false;
     TWeakObjectPtr<ABreakoutGameManager> Manager;
+    uint64 LastImpactFrame = MAX_uint64;
 };
 
 // Kept on the existing BP_Ball so its slide-01_01 movement graph stays editable.
@@ -133,10 +148,15 @@ class BREAKOUTGAME_API UBreakoutBallRulesComponent : public UActorComponent
     GENERATED_BODY()
 public:
     UBreakoutBallRulesComponent();
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sound") TSoftObjectPtr<USoundBase> KnockSound;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sound", meta=(ClampMin="0",ClampMax="1")) float KnockVolume = 0.65f;
 protected:
     virtual void BeginPlay() override;
     UFUNCTION() void OnBallOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
         UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+    UFUNCTION() void OnBallHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
+        UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 private:
     bool bMissHandled = false;
+    uint64 LastSoundFrame = MAX_uint64;
 };
