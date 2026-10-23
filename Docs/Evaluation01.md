@@ -1,5 +1,7 @@
 # 評価課題01 提出記録
 
+ゲームループ・得点・破壊演出を追加した更新版は`Evaluation01-GameLoop.md`を参照。以下は初回提出物をまとめた時点の記録であり、最終Level2で停止する制限は更新版で解消する。
+
 資料: https://docs.google.com/presentation/d/1OAXTxzlLTB92kFkjben1mudNk9ot0lFGgDPGytCllb8/edit
 
 ## 提出条件

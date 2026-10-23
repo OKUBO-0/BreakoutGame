@@ -13,7 +13,11 @@ ABreakoutTitleGameMode::ABreakoutTitleGameMode()
 void ABreakoutTitleGameMode::StartPlay()
 {
     // Entering the title starts a fresh run, not a carry-over from Level2.
-    if (UBreakoutGameInstance* GI = Cast<UBreakoutGameInstance>(GetGameInstance())) GI->LeftBallNum = -1;
+    if (UBreakoutGameInstance* GI = Cast<UBreakoutGameInstance>(GetGameInstance()))
+    {
+        GI->LeftBallNum = -1;
+        GI->RunScore = 0;
+    }
     if (APlayerController* PC = UGameplayStatics::GetPlayerController(this,0))
     {
         PC->SetInputMode(FInputModeGameOnly());

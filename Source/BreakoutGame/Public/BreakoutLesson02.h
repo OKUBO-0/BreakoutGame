@@ -77,6 +77,11 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="UI") TSoftClassPtr<UBreakoutGameInformation> GameInformationClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="UI") TObjectPtr<UBreakoutGameInformation> GameInformation;
     UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category="Levels") FName NextLevelName;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Score") int32 ComboCount = 0;
+    UFUNCTION(BlueprintPure, Category="Score") int32 GetScore() const;
+    UFUNCTION(BlueprintPure, Category="Score") int32 GetComboMultiplier() const;
+    FText GetStatusText() const;
+    FText GetActionHint() const;
 
     UFUNCTION(BlueprintCallable, Category="Blocks") void AddBlockNum();
     UFUNCTION(BlueprintCallable, Category="Blocks") void AddBrokenBlockNum();
@@ -96,6 +101,9 @@ protected:
 private:
     UFUNCTION() void OnBallDestroyed(AActor* Ball);
     bool bResetPending = false;
+    float LastBreakTime = -100.0f;
+    int32 StageStartScore = 0;
+    UPROPERTY(Transient) TObjectPtr<UUserWidget> ScoreOverlay;
     TSet<TWeakObjectPtr<AActor>> LiveBalls;
 };
 

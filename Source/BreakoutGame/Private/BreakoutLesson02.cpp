@@ -18,6 +18,7 @@
 #include "Sound/SoundBase.h"
 #include "Misc/PackageName.h"
 #include "BreakoutLesson06.h"
+#include "BreakoutPresentation.h"
 
 void UBreakoutGameInformation::NativeConstruct()
 {
@@ -57,7 +58,10 @@ void ABreakoutGameManager::BeginPlay()
 {
     Super::BeginPlay();
     if (const UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance()))
+    {
         if (Instance->IsValidBallNum()) LeftBallNum = Instance->LeftBallNum;
+        StageStartScore = Instance->RunScore;
+    }
     if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
     {
         if (UClass* WidgetClass = GameInformationClass.LoadSynchronous())
@@ -65,7 +69,38 @@ void ABreakoutGameManager::BeginPlay()
             GameInformation = CreateWidget<UBreakoutGameInformation>(PC, WidgetClass);
             if (GameInformation) GameInformation->AddToViewport();
         }
+        ScoreOverlay = CreateWidget<UBreakoutScoreOverlay>(PC);
+        if (ScoreOverlay) ScoreOverlay->AddToViewport(20);
     }
+}
+
+int32 ABreakoutGameManager::GetScore() const
+{
+    const UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance());
+    return Instance ? Instance->RunScore : 0;
+}
+
+int32 ABreakoutGameManager::GetComboMultiplier() const
+{
+    return GetWorld() && GetWorld()->GetTimeSeconds() - LastBreakTime <= 4.0f
+        ? FMath::Clamp(ComboCount, 1, 5) : 1;
+}
+
+FText ABreakoutGameManager::GetStatusText() const
+{
+    const UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance());
+    return FText::FromString(FString::Printf(TEXT("LEVEL %d / 2\nSCORE %d   BEST %d\nBLOCKS %d / %d   COMBO x%d"),
+        NextLevelName.IsNone() ? 2 : 1, GetScore(), Instance ? Instance->SessionBestScore : 0,
+        GetLeftBlockNum(), BlockNum, GetComboMultiplier()));
+}
+
+FText ABreakoutGameManager::GetActionHint() const
+{
+    if (IsCleared) return FText::FromString(NextLevelName.IsNone()
+        ? TEXT("ALL CLEAR!   SPACE: BACK TO TITLE") : TEXT("STAGE CLEAR!   SPACE: NEXT LEVEL"));
+    if (IsGameOver) return FText::FromString(TEXT("SPACE: RETRY THIS STAGE"));
+    return FText::FromString(InGameBallNum == 0 ? TEXT("A / D: MOVE   SPACE: LAUNCH")
+        : TEXT("BREAK WITHIN 4s FOR COMBO x5!   CATCH A: EXTRA BALL"));
 }
 
 void ABreakoutGameManager::SpawnBall()
@@ -124,17 +159,22 @@ void ABreakoutGameManager::Action()
 void ABreakoutGameManager::LevelReset()
 {
     if (!IsGameOver || !LiveBalls.IsEmpty() || bResetPending) return;
-    if (UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance())) Instance->LeftBallNum = -1;
+    if (UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance()))
+    {
+        Instance->LeftBallNum = -1;
+        Instance->RunScore = StageStartScore;
+    }
     bResetPending = true;
     UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
 }
 
 void ABreakoutGameManager::OpenNextLevel()
 {
-    if (!IsCleared || IsGameOver || bResetPending || NextLevelName.IsNone()) return;
+    if (!IsCleared || IsGameOver || bResetPending) return;
     // Short-name disk searches cannot discover maps inside a packaged IoStore.
     // Resolve relative map names next to this map, then query the package system.
-    FString PackageName = NextLevelName.ToString();
+    const bool bFinalStage = NextLevelName.IsNone();
+    FString PackageName = bFinalStage ? TEXT("/Game/TitleLevel") : NextLevelName.ToString();
     if (FPackageName::IsShortPackageName(PackageName))
         PackageName = FPackageName::GetLongPackagePath(GetWorld()->GetOutermost()->GetName()) / PackageName;
     if (!FPackageName::DoesPackageExist(PackageName))
@@ -145,7 +185,7 @@ void ABreakoutGameManager::OpenNextLevel()
     UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance());
     if (!Instance) { UE_LOG(LogTemp, Error, TEXT("BreakoutGameInstance must be selected in Maps & Modes.")); return; }
     // InGameBallNum stays frozen after clear, even when those balls fall.
-    Instance->LeftBallNum = FMath::Max(0, LeftBallNum) + FMath::Max(0, InGameBallNum);
+    Instance->LeftBallNum = bFinalStage ? -1 : FMath::Max(0, LeftBallNum) + FMath::Max(0, InGameBallNum);
     bResetPending = true;
     UGameplayStatics::OpenLevel(this, FName(*PackageName));
 }
@@ -204,6 +244,14 @@ void ABreakoutGameManager::AddBlockNum()
 void ABreakoutGameManager::AddBrokenBlockNum()
 {
     if (IsCleared || IsGameOver || BrokenBlockNum >= BlockNum) return;
+    const float Now = GetWorld()->GetTimeSeconds();
+    ComboCount = Now - LastBreakTime <= 4.0f ? FMath::Min(ComboCount + 1, 5) : 1;
+    LastBreakTime = Now;
+    if (UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance()))
+    {
+        Instance->RunScore += 100 * GetComboMultiplier();
+        Instance->SessionBestScore = FMath::Max(Instance->SessionBestScore, Instance->RunScore);
+    }
     ++BrokenBlockNum;
     UKismetSystemLibrary::PrintString(this, FString::Printf(TEXT("BrokenBlockNum : %d"), BrokenBlockNum),
         true, true, FLinearColor(0.1f, 0.2f, 1.0f), 2.0f);
@@ -246,6 +294,8 @@ void ABreakoutGameManager::ViewGameOverWidget()
 void ABreakoutGameManager::MissCount()
 {
     if (IsCleared || IsGameOver) return;
+    ComboCount = 0;
+    LastBreakTime = -100.0f;
     InGameBallNum = FMath::Max(0, InGameBallNum - 1);
     if (LeftBallNum > 0 || InGameBallNum > 0) return;
     IsGameOver = true;
@@ -337,6 +387,8 @@ void ABreakoutBlock::BreakBlock()
     bBroken = true;
     // Count before destruction and guard against two hit callbacks in the same frame.
     if (Manager.IsValid()) Manager->AddBrokenBlockNum();
+    if (ABreakoutBlockBurst* Burst = GetWorld()->SpawnActor<ABreakoutBlockBurst>(GetActorLocation(), FRotator::ZeroRotator))
+        Burst->SetColor(ColorTable.IsValidIndex(Hp - 1) ? ColorTable[Hp - 1] : FLinearColor::White);
     if (ItemDropChance > 0 && FMath::FRand() < FMath::Clamp(ItemDropChance, 0.0f, 1.0f))
         if (UClass* Class = ItemClass.LoadSynchronous())
         {
