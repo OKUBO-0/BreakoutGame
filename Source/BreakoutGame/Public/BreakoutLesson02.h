@@ -18,6 +18,7 @@ class UTextRenderComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class USoundBase;
+class ABreakoutAddBallItem;
 
 UCLASS(Blueprintable)
 class BREAKOUTGAME_API UBreakoutGameInformation : public UUserWidget
@@ -68,7 +69,8 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="UI") TSoftClassPtr<UUserWidget> GameOverWidgetClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="UI") TObjectPtr<UUserWidget> ResultWidget;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ball", meta=(ClampMin="0")) int32 LeftBallNum = 3;
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ball") bool IsBallSpawned = false;
+    // Frozen at clear so balls that subsequently fall still carry to the next level.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ball") int32 InGameBallNum = 0;
     UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category="Ball") TObjectPtr<AActor> SpawnLocationActor;
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Ball") TSoftClassPtr<AActor> BallClass;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Ball") TObjectPtr<AActor> ActiveBall;
@@ -83,6 +85,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI") void ViewGameOverWidget();
     UFUNCTION(BlueprintCallable, Category="State") void MissCount();
     UFUNCTION(BlueprintCallable, Category="Ball") void SpawnBall();
+    UFUNCTION(BlueprintCallable, Category="Ball") AActor* GenerateBall();
     UFUNCTION(BlueprintCallable, Category="Input") void Action();
     UFUNCTION(BlueprintPure, Category="Ball") int32 GetLeftBallNum() const { return LeftBallNum; }
     UFUNCTION(BlueprintCallable, Category="State") void LevelReset();
@@ -93,6 +96,7 @@ protected:
 private:
     UFUNCTION() void OnBallDestroyed(AActor* Ball);
     bool bResetPending = false;
+    TSet<TWeakObjectPtr<AActor>> LiveBalls;
 };
 
 // Input stays on the possessed Paddle. Its existing movement graph is unchanged.
@@ -127,6 +131,8 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Block") TArray<FLinearColor> ColorTable;
     UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Block") TSoftObjectPtr<UMaterialInterface> BlockMaterial;
     UPROPERTY(Transient, BlueprintReadOnly, Category="Block") TObjectPtr<UMaterialInstanceDynamic> MaterialInstance;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Item", meta=(ClampMin="0",ClampMax="1")) float ItemDropChance = 0.5f;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Item") TSoftClassPtr<ABreakoutAddBallItem> ItemClass;
     UFUNCTION(BlueprintCallable, Category="Block") void ReloadHp();
     UFUNCTION(BlueprintCallable, Category="Block") void HitBlock();
     UFUNCTION(BlueprintCallable, Category="Block") void BreakBlock();
@@ -139,6 +145,7 @@ private:
     bool bBroken = false;
     TWeakObjectPtr<ABreakoutGameManager> Manager;
     uint64 LastImpactFrame = MAX_uint64;
+    TSet<TWeakObjectPtr<AActor>> ImpactBallsThisFrame;
 };
 
 // Kept on the existing BP_Ball so its slide-01_01 movement graph stays editable.

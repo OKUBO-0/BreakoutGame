@@ -75,7 +75,7 @@ public:
         }
         else if (Phase == 1)
         {
-            Test->TestTrue(TEXT("Space Started launches a ball"), Manager->IsBallSpawned);
+            Test->TestEqual(TEXT("Space Started launches a ball"), Manager->InGameBallNum, 1);
             Test->TestEqual(TEXT("Exactly one ball while holding Space"), BallCount(), 1);
             Test->TestEqual(TEXT("One reserve consumed per launch"), Manager->LeftBallNum, 2 - Shot);
             if (Manager->GameInformation && Manager->GameInformation->LeftBallTextBox)
@@ -99,7 +99,7 @@ public:
         else if (Phase == 3)
         {
             Test->TestEqual(TEXT("MissArea removes the ball"), BallCount(), 0);
-            Test->TestFalse(TEXT("Miss unlocks the next launch"), Manager->IsBallSpawned);
+            Test->TestEqual(TEXT("Miss unlocks the next launch"), Manager->InGameBallNum, 0);
             if (Shot < 2)
             {
                 Test->TestFalse(TEXT("First two misses are not GameOver"), Manager->IsGameOver);

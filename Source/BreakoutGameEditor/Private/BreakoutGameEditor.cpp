@@ -31,6 +31,7 @@
 
 void SetupLesson04();
 void SetupLesson05();
+void SetupLesson06();
 
 namespace
 {
@@ -274,7 +275,7 @@ void ConfigureLesson03Level()
     Manager->Modify();
     Manager->SpawnLocationActor = Respawn;
     Manager->LeftBallNum = 3;
-    Manager->IsBallSpawned = false;
+    Manager->InGameBallNum = 0;
     Manager->Tags.Add(TEXT("Lesson03Configured"));
     World->MarkPackageDirty();
     FEditorFileUtils::SaveLevel(World->PersistentLevel);
@@ -298,6 +299,7 @@ public:
             ConfigureLesson03Level();
             SetupLesson04();
             SetupLesson05();
+            SetupLesson06();
             return false;
         }), 3.0f);
     }

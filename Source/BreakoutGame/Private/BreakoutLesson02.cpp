@@ -17,6 +17,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Sound/SoundBase.h"
 #include "Misc/PackageName.h"
+#include "BreakoutLesson06.h"
 
 void UBreakoutGameInformation::NativeConstruct()
 {
@@ -69,31 +70,47 @@ void ABreakoutGameManager::BeginPlay()
 
 void ABreakoutGameManager::SpawnBall()
 {
-    if (IsCleared || IsGameOver || bResetPending || IsBallSpawned || IsValid(ActiveBall) || LeftBallNum <= 0) return;
+    if (IsCleared || IsGameOver || bResetPending || InGameBallNum > 0 || LeftBallNum <= 0) return;
+    if (GenerateBall())
+    {
+        --LeftBallNum;
+        if (GameInformation) GameInformation->Refresh(LeftBallNum);
+    }
+}
+
+AActor* ABreakoutGameManager::GenerateBall()
+{
+    if (IsCleared || IsGameOver || bResetPending || !GetWorld() || GetWorld()->bIsTearingDown) return nullptr;
     if (!IsValid(SpawnLocationActor))
     {
         UE_LOG(LogTemp, Error, TEXT("SpawnBall requires SpawnLocationActor."));
-        return;
+        return nullptr;
     }
     UClass* Class = BallClass.LoadSynchronous();
-    if (!Class) return;
+    if (!Class) return nullptr;
     const FTransform Transform(FRotator::ZeroRotator, SpawnLocationActor->GetActorLocation(), FVector::OneVector);
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::DontSpawnIfColliding;
     AActor* Ball = GetWorld()->SpawnActor<AActor>(Class, Transform, Params);
     // Failed spawns never consume a life or lock the next attempt.
-    if (!IsValid(Ball)) return;
+    if (!IsValid(Ball)) return nullptr;
     ActiveBall = Ball;
-    IsBallSpawned = true;
-    --LeftBallNum;
+    LiveBalls.Add(Ball);
+    ++InGameBallNum;
     Ball->OnDestroyed.AddDynamic(this, &ABreakoutGameManager::OnBallDestroyed);
-    if (GameInformation) GameInformation->Refresh(LeftBallNum);
+    return Ball;
 }
 
 void ABreakoutGameManager::OnBallDestroyed(AActor* Ball)
 {
-    if (Ball != ActiveBall) return;
-    ActiveBall = nullptr;
+    if (!LiveBalls.Remove(Ball)) return;
+    if (Ball == ActiveBall)
+    {
+        ActiveBall = nullptr;
+        for (const TWeakObjectPtr<AActor>& Live : LiveBalls)
+            if (Live.IsValid()) { ActiveBall = Live.Get(); break; }
+    }
+    if (bResetPending || GetWorld()->bIsTearingDown) return;
     MissCount();
 }
 
@@ -106,7 +123,7 @@ void ABreakoutGameManager::Action()
 
 void ABreakoutGameManager::LevelReset()
 {
-    if (!IsGameOver || IsValid(ActiveBall) || bResetPending) return;
+    if (!IsGameOver || !LiveBalls.IsEmpty() || bResetPending) return;
     if (UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance())) Instance->LeftBallNum = -1;
     bResetPending = true;
     UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
@@ -123,8 +140,8 @@ void ABreakoutGameManager::OpenNextLevel()
     }
     UBreakoutGameInstance* Instance = Cast<UBreakoutGameInstance>(GetGameInstance());
     if (!Instance) { UE_LOG(LogTemp, Error, TEXT("BreakoutGameInstance must be selected in Maps & Modes.")); return; }
-    // Restore the ball used to clear, even if it fell while viewing the result.
-    Instance->LeftBallNum = FMath::Max(0, LeftBallNum) + 1;
+    // InGameBallNum stays frozen after clear, even when those balls fall.
+    Instance->LeftBallNum = FMath::Max(0, LeftBallNum) + FMath::Max(0, InGameBallNum);
     bResetPending = true;
     UGameplayStatics::OpenLevel(this, FName(*PackageName));
 }
@@ -224,9 +241,9 @@ void ABreakoutGameManager::ViewGameOverWidget()
 
 void ABreakoutGameManager::MissCount()
 {
-    IsBallSpawned = false;
     if (IsCleared || IsGameOver) return;
-    if (LeftBallNum > 0) return;
+    InGameBallNum = FMath::Max(0, InGameBallNum - 1);
+    if (LeftBallNum > 0 || InGameBallNum > 0) return;
     IsGameOver = true;
     ViewGameOverWidget();
 }
@@ -257,6 +274,7 @@ ABreakoutBlock::ABreakoutBlock()
     TextRender->SetWorldSize(150);
     TextRender->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     BlockMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/Game/Breakout/BlockMaterial.BlockMaterial")));
+    ItemClass = TSoftClassPtr<ABreakoutAddBallItem>(FSoftObjectPath(TEXT("/Game/Breakout/AddBallItem.AddBallItem_C")));
     ColorTable = {FLinearColor::White, FLinearColor(FColor(153,255,255)), FLinearColor(FColor(255,153,255)),
         FLinearColor(FColor(255,153,153)), FLinearColor(FColor(255,255,153))};
 }
@@ -298,8 +316,14 @@ void ABreakoutBlock::BeginPlay()
 void ABreakoutBlock::OnCubeHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
     UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-    if (!OtherActor || !OtherActor->FindComponentByClass<UBreakoutBallRulesComponent>() || LastImpactFrame == GFrameCounter) return;
-    LastImpactFrame = GFrameCounter;
+    if (!OtherActor || !OtherActor->FindComponentByClass<UBreakoutBallRulesComponent>()) return;
+    if (LastImpactFrame != GFrameCounter)
+    {
+        LastImpactFrame = GFrameCounter;
+        ImpactBallsThisFrame.Reset();
+    }
+    if (ImpactBallsThisFrame.Contains(OtherActor)) return;
+    ImpactBallsThisFrame.Add(OtherActor);
     HitBlock();
 }
 
@@ -309,6 +333,13 @@ void ABreakoutBlock::BreakBlock()
     bBroken = true;
     // Count before destruction and guard against two hit callbacks in the same frame.
     if (Manager.IsValid()) Manager->AddBrokenBlockNum();
+    if (ItemDropChance > 0 && FMath::FRand() < FMath::Clamp(ItemDropChance, 0.0f, 1.0f))
+        if (UClass* Class = ItemClass.LoadSynchronous())
+        {
+            FActorSpawnParameters Params;
+            Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            GetWorld()->SpawnActor<ABreakoutAddBallItem>(Class, GetActorTransform(), Params);
+        }
     Destroy();
 }
 
