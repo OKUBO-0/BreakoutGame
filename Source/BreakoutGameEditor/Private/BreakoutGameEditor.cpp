@@ -32,6 +32,7 @@
 void SetupLesson04();
 void SetupLesson05();
 void SetupLesson06();
+void SetupLesson07();
 
 namespace
 {
@@ -300,6 +301,7 @@ public:
             SetupLesson04();
             SetupLesson05();
             SetupLesson06();
+            SetupLesson07();
             return false;
         }), 3.0f);
     }
