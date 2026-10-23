@@ -11,6 +11,7 @@
 #include "InputKeyEventArgs.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameMapsSettings.h"
+#include "GameFramework/GameUserSettings.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -30,6 +31,9 @@ public:
         if (Phase==0)
         {
             Test->TestTrue(TEXT("Title has isolated game mode"),World->GetAuthGameMode()->IsA<ABreakoutTitleGameMode>());
+            UGameUserSettings* Settings=UGameUserSettings::GetGameUserSettings();
+            Test->TestEqual(TEXT("Lesson08 windowed display"),Settings->GetFullscreenMode(),EWindowMode::Windowed);
+            Test->TestEqual(TEXT("Lesson08 screen resolution"),Settings->GetScreenResolution(),FIntPoint(1280,720));
             Test->TestNull(TEXT("No paddle on title"),PC->GetPawn().Get());
             Test->TestNull(TEXT("No gameplay manager on title"),ABreakoutGameManager::Find(World));
             UClass* WidgetClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/Breakout/UI/TitleWidget.TitleWidget_C"));

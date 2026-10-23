@@ -17,7 +17,8 @@
 		},
 		{
 			"Name": "ModelContextProtocol",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": ["Editor"]
 		},
 		{
 			"Name": "EditorToolset",

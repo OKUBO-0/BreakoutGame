@@ -132,8 +132,12 @@ void ABreakoutGameManager::LevelReset()
 void ABreakoutGameManager::OpenNextLevel()
 {
     if (!IsCleared || IsGameOver || bResetPending || NextLevelName.IsNone()) return;
-    FString PackageName;
-    if (!FPackageName::SearchForPackageOnDisk(NextLevelName.ToString(), &PackageName))
+    // Short-name disk searches cannot discover maps inside a packaged IoStore.
+    // Resolve relative map names next to this map, then query the package system.
+    FString PackageName = NextLevelName.ToString();
+    if (FPackageName::IsShortPackageName(PackageName))
+        PackageName = FPackageName::GetLongPackagePath(GetWorld()->GetOutermost()->GetName()) / PackageName;
+    if (!FPackageName::DoesPackageExist(PackageName))
     {
         UE_LOG(LogTemp, Warning, TEXT("Next level does not exist: %s"), *NextLevelName.ToString());
         return;

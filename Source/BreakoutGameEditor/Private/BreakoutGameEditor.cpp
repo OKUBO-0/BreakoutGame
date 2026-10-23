@@ -33,6 +33,7 @@ void SetupLesson04();
 void SetupLesson05();
 void SetupLesson06();
 void SetupLesson07();
+void SetupLesson08();
 
 namespace
 {
@@ -288,6 +289,8 @@ class FBreakoutGameEditorModule : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        // Cooking must never switch maps or create/edit lesson assets.
+        if (IsRunningCommandlet()) return;
         // Creates only missing lesson assets. Existing edited assets are never regenerated.
         Handle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float)
         {
@@ -302,6 +305,7 @@ public:
             SetupLesson05();
             SetupLesson06();
             SetupLesson07();
+            SetupLesson08();
             return false;
         }), 3.0f);
     }

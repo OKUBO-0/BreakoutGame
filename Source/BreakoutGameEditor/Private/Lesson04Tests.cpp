@@ -125,6 +125,9 @@ public:
                 for (int32 I=Block->Hp; I>0; --I) Block->HitBlock();
             Test->TestTrue(TEXT("Only final block destruction clears the level"), Manager->IsCleared);
             Test->TestEqual(TEXT("All five intro blocks counted exactly once"), Manager->BrokenBlockNum, 5);
+            // Lesson08: explicit package paths work as well as the short-name
+            // path exercised by the multiball carry-over test.
+            Manager->NextLevelName = FName(TEXT("/Game/Level2"));
             Manager->Action();
             Manager->Action();
             Test->TestEqual(TEXT("Carry-over includes the in-play ball exactly once"), Instance->LeftBallNum, 2);
