@@ -8,10 +8,23 @@
 #include "Components/TextBlock.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
+#include "PlayInEditorDataTypes.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
 {
+// UMG does not evaluate its animations in an occluded/minimized editor viewport.
+// A dedicated PIE window makes the existing visual assertion exercise a drawn UI.
+class FStartLesson03VisiblePIE : public IAutomationLatentCommand
+{
+public:
+    bool Update() override
+    {
+        FRequestPlaySessionParams Params;
+        GEditor->RequestPlaySession(Params);
+        return true;
+    }
+};
 class FLesson03PlayTest : public IAutomationLatentCommand
 {
 public:
@@ -172,7 +185,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBreakoutLesson03Test, "Breakout.Lesson03.Input
 bool FBreakoutLesson03Test::RunTest(const FString& Parameters)
 {
     ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(TEXT("/Game/L_InGame")));
-    ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+    ADD_LATENT_AUTOMATION_COMMAND(FStartLesson03VisiblePIE());
     ADD_LATENT_AUTOMATION_COMMAND(FLesson03PlayTest(this));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     return true;

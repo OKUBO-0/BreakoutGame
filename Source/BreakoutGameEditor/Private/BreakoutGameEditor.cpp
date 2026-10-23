@@ -30,6 +30,7 @@
 #include "FileHelpers.h"
 
 void SetupLesson04();
+void SetupLesson05();
 
 namespace
 {
@@ -296,6 +297,7 @@ public:
             FitLessonWidgetsToCamera();
             ConfigureLesson03Level();
             SetupLesson04();
+            SetupLesson05();
             return false;
         }), 3.0f);
     }

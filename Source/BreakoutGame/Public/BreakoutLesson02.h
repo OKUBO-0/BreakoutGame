@@ -148,6 +148,7 @@ class BREAKOUTGAME_API UBreakoutBallRulesComponent : public UActorComponent
     GENERATED_BODY()
 public:
     UBreakoutBallRulesComponent();
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Aiming", meta=(ClampMin="0",ClampMax="90")) float MinHorizontalAngleDeg = 10.0f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sound") TSoftObjectPtr<USoundBase> KnockSound;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Sound", meta=(ClampMin="0",ClampMax="1")) float KnockVolume = 0.65f;
 protected:

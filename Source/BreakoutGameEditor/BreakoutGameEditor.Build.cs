@@ -7,7 +7,7 @@ public class BreakoutGameEditor : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[] {
             "Core", "CoreUObject", "Engine", "BreakoutGame", "UnrealEd", "UMG", "UMGEditor",
             "Slate", "SlateCore", "MovieScene", "MovieSceneTracks", "AssetRegistry", "Kismet", "KismetCompiler", "EnhancedInput", "InputCore",
-            "AssetTools", "AudioEditor", "EngineSettings"
+            "AssetTools", "AudioEditor", "EngineSettings", "BlueprintGraph"
         });
     }
 }
